@@ -2,6 +2,9 @@ package denygo
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/binary"
 	"encoding/hex"
 	"testing"
 )
@@ -421,25 +424,87 @@ func TestDeriveKeyPasswordOrderMatters(t *testing.T) {
 	}
 }
 
-// --- Cross-compatibility KAT vectors (from TypeScript tests) ---
+// --- Cross-implementation Known Answer Tests ---
+//
+// These vectors are byte-identical across the four reference SDKs
+// (TypeScript, Python, Rust, Go) and gate cross-SDK ciphertext
+// interoperability. A regression in scrypt parameters, SHA-256
+// pre-hashing, or AES-CTR composition will fail one of these tests
+// before publishing. Whitepaper §8 references these exact values.
 
 func TestDeriveKeyKAT1(t *testing.T) {
-	// DeriveKey('password1', 'password2', salt=0xAA*32) -> hex starts with 73dd642b
+	// DeriveKey('password1', 'password2', salt=0xAA*32) full 32-byte output.
 	salt := bytes.Repeat([]byte{0xAA}, 32)
 	key := DeriveKey("password1", "password2", salt)
-	hexKey := hex.EncodeToString(key)
-	if hexKey[:8] != "73dd642b" {
-		t.Errorf("KAT1 failed: got prefix %s, want 73dd642b (full: %s)", hexKey[:8], hexKey)
+	want := "73dd642b75d80ca9423516905f4f7e990188612e7e1a1b7a28f5c8a6f21203a7"
+	if got := hex.EncodeToString(key); got != want {
+		t.Errorf("KAT1 deriveKey: got %s, want %s", got, want)
 	}
 }
 
 func TestDeriveKeyKAT2(t *testing.T) {
-	// DeriveKey('test-pw1', 'test-pw2', salt=0x01*32) -> hex starts with ed672cc0
+	// DeriveKey('test-pw1', 'test-pw2', salt=0x01*32) full 32-byte output.
 	salt := bytes.Repeat([]byte{0x01}, 32)
 	key := DeriveKey("test-pw1", "test-pw2", salt)
-	hexKey := hex.EncodeToString(key)
-	if hexKey[:8] != "ed672cc0" {
-		t.Errorf("KAT2 failed: got prefix %s, want ed672cc0 (full: %s)", hexKey[:8], hexKey)
+	want := "ed672cc011ceec68e8d746251bdd390580bb009a1d64c75fa58f233c877ec1b6"
+	if got := hex.EncodeToString(key); got != want {
+		t.Errorf("KAT2 deriveKey: got %s, want %s", got, want)
+	}
+}
+
+func TestFullCiphertextKAT(t *testing.T) {
+	// Inputs match Python tests/test_core.py:test_full_encrypt_decrypt_kat,
+	// TypeScript src/test/core.test.ts "KAT 3: full ciphertext", and
+	// Rust tests/integration_test.rs:kat_full_ciphertext_byte_exact.
+	pw1Local := "test-pw1"
+	pw2Local := "test-pw2"
+	fixedSalt := bytes.Repeat([]byte{0x01}, 32)
+	fixedIV := bytes.Repeat([]byte{0x02}, 16)
+	message := []byte("Hello, World!") // 13 bytes
+	controlData := bytes.Repeat([]byte{0x03}, len(message)+4) // 17 bytes
+
+	// 1. Derive key (must match KAT 2).
+	key := DeriveKey(pw1Local, pw2Local, fixedSalt)
+	if got := hex.EncodeToString(key); got != "ed672cc011ceec68e8d746251bdd390580bb009a1d64c75fa58f233c877ec1b6" {
+		t.Fatalf("derived key mismatch: %s", got)
+	}
+
+	// 2. Build payload: LE32 length || plaintext.
+	payload := make([]byte, len(message)+4)
+	binary.LittleEndian.PutUint32(payload[:4], uint32(len(message)))
+	copy(payload[4:], message)
+	if got := hex.EncodeToString(payload); got != "0d00000048656c6c6f2c20576f726c6421" {
+		t.Fatalf("payload mismatch: %s", got)
+	}
+
+	// 3. XOR with control data.
+	xored := make([]byte, len(payload))
+	for i := range payload {
+		xored[i] = payload[i] ^ controlData[i]
+	}
+	if got := hex.EncodeToString(xored); got != "0e0303034b666f6f6c2f23546c716f6722" {
+		t.Fatalf("xored mismatch: %s", got)
+	}
+
+	// 4. AES-256-CTR encrypt with fixed IV.
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatalf("aes.NewCipher: %v", err)
+	}
+	stream := cipher.NewCTR(block, fixedIV)
+	encrypted := make([]byte, len(xored))
+	stream.XORKeyStream(encrypted, xored)
+	if got := hex.EncodeToString(encrypted); got != "0eb73cf8af6fb16234fa5419946cca00e0" {
+		t.Fatalf("encrypted mismatch: %s", got)
+	}
+
+	// 5. Full wire-format ciphertext = salt(32) || iv(16) || encrypted(17).
+	fullCT := append(append(append([]byte{}, fixedSalt...), fixedIV...), encrypted...)
+	wantFull := "0101010101010101010101010101010101010101010101010101010101010101" +
+		"02020202020202020202020202020202" +
+		"0eb73cf8af6fb16234fa5419946cca00e0"
+	if got := hex.EncodeToString(fullCT); got != wantFull {
+		t.Fatalf("full ciphertext mismatch:\n got %s\nwant %s", got, wantFull)
 	}
 }
 

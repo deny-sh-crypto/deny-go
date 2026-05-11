@@ -76,4 +76,4 @@ go test -v ./...
 
 ## License
 
-AGPL-3.0. [Commercial licenses](https://deny.sh/pricing) available.
+Apache License 2.0. See [LICENSE](LICENSE). Free for commercial and proprietary use. See [deny.sh/licensing](https://deny.sh/licensing).
