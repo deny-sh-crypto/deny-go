@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"testing"
+
+	"golang.org/x/crypto/argon2"
 )
 
 var (
@@ -428,15 +431,16 @@ func TestDeriveKeyPasswordOrderMatters(t *testing.T) {
 //
 // These vectors are byte-identical across the four reference SDKs
 // (TypeScript, Python, Rust, Go) and gate cross-SDK ciphertext
-// interoperability. A regression in scrypt parameters, SHA-256
-// pre-hashing, or AES-CTR composition will fail one of these tests
-// before publishing. Whitepaper §8 references these exact values.
+// interoperability. A regression in Argon2id parameters (t=3, m=64MiB,
+// p=1, variant=Argon2id, version=0x13), SHA-256 pre-hashing, or
+// AES-CTR composition will fail one of these tests before publishing.
+// Whitepaper §8 references these exact values.
 
 func TestDeriveKeyKAT1(t *testing.T) {
 	// DeriveKey('password1', 'password2', salt=0xAA*32) full 32-byte output.
 	salt := bytes.Repeat([]byte{0xAA}, 32)
 	key := DeriveKey("password1", "password2", salt)
-	want := "73dd642b75d80ca9423516905f4f7e990188612e7e1a1b7a28f5c8a6f21203a7"
+	want := "854e7acffd85eae6d45ed07e84237fddc887928270f591a41b36d57e675181d8"
 	if got := hex.EncodeToString(key); got != want {
 		t.Errorf("KAT1 deriveKey: got %s, want %s", got, want)
 	}
@@ -446,7 +450,7 @@ func TestDeriveKeyKAT2(t *testing.T) {
 	// DeriveKey('test-pw1', 'test-pw2', salt=0x01*32) full 32-byte output.
 	salt := bytes.Repeat([]byte{0x01}, 32)
 	key := DeriveKey("test-pw1", "test-pw2", salt)
-	want := "ed672cc011ceec68e8d746251bdd390580bb009a1d64c75fa58f233c877ec1b6"
+	want := "d99364f250367785bff7a962331254b18138d2249c969e27b0f75060070fa3f6"
 	if got := hex.EncodeToString(key); got != want {
 		t.Errorf("KAT2 deriveKey: got %s, want %s", got, want)
 	}
@@ -465,7 +469,7 @@ func TestFullCiphertextKAT(t *testing.T) {
 
 	// 1. Derive key (must match KAT 2).
 	key := DeriveKey(pw1Local, pw2Local, fixedSalt)
-	if got := hex.EncodeToString(key); got != "ed672cc011ceec68e8d746251bdd390580bb009a1d64c75fa58f233c877ec1b6" {
+	if got := hex.EncodeToString(key); got != "d99364f250367785bff7a962331254b18138d2249c969e27b0f75060070fa3f6" {
 		t.Fatalf("derived key mismatch: %s", got)
 	}
 
@@ -494,7 +498,7 @@ func TestFullCiphertextKAT(t *testing.T) {
 	stream := cipher.NewCTR(block, fixedIV)
 	encrypted := make([]byte, len(xored))
 	stream.XORKeyStream(encrypted, xored)
-	if got := hex.EncodeToString(encrypted); got != "0eb73cf8af6fb16234fa5419946cca00e0" {
+	if got := hex.EncodeToString(encrypted); got != "7c5cd13699e85f6bcde6dad013d48047ca" {
 		t.Fatalf("encrypted mismatch: %s", got)
 	}
 
@@ -502,7 +506,7 @@ func TestFullCiphertextKAT(t *testing.T) {
 	fullCT := append(append(append([]byte{}, fixedSalt...), fixedIV...), encrypted...)
 	wantFull := "0101010101010101010101010101010101010101010101010101010101010101" +
 		"02020202020202020202020202020202" +
-		"0eb73cf8af6fb16234fa5419946cca00e0"
+		"7c5cd13699e85f6bcde6dad013d48047ca"
 	if got := hex.EncodeToString(fullCT); got != wantFull {
 		t.Fatalf("full ciphertext mismatch:\n got %s\nwant %s", got, wantFull)
 	}
@@ -544,5 +548,52 @@ func TestSingleByteMessage(t *testing.T) {
 
 	if !bytes.Equal(plaintext, message) {
 		t.Errorf("single byte roundtrip failed: got %v, want %v", plaintext, message)
+	}
+}
+
+// --- Argon2id parameter pinning ---
+//
+// If any of these constants ever drifts (e.g. a future refactor changes
+// m=65536 to m=131072), a DeriveKey call with known inputs will produce
+// DIFFERENT output from the locked KAT vectors above. This test asserts
+// the PARAMETERS THEMSELVES rather than the resulting hex so that the
+// failure message names the bad constant directly.
+func TestArgon2idParametersAreLocked(t *testing.T) {
+	// These are the locked v2.0.0 cross-SDK parameters.
+	const (
+		lockedTime        uint32 = 3
+		lockedMemory      uint32 = 65536
+		lockedParallelism uint8  = 1
+		lockedKeyLen      uint32 = 32
+	)
+
+	pw1Hash := sha256.Sum256([]byte("password1"))
+	pw2Hash := sha256.Sum256([]byte("password2"))
+	combined := append(pw1Hash[:], pw2Hash[:]...)
+	salt := bytes.Repeat([]byte{0xAA}, 32)
+
+	key := argon2.IDKey(combined, salt, lockedTime, lockedMemory, lockedParallelism, lockedKeyLen)
+
+	want := "854e7acffd85eae6d45ed07e84237fddc887928270f591a41b36d57e675181d8"
+	if got := hex.EncodeToString(key); got != want {
+		t.Errorf("Argon2id parameter pinning failed; one of t=%d m=%d p=%d len=%d has drifted.\n got %s\nwant %s",
+			lockedTime, lockedMemory, lockedParallelism, lockedKeyLen, got, want)
+	}
+}
+
+// TestDecryptShortControlData is a regression test for the Go panic when
+// controlData is shorter than the decrypted payload. Other SDKs return a
+// clean error; Go must match.
+func TestDecryptShortControlData(t *testing.T) {
+	msg := []byte("test message for short ctrl regression")
+	ctrl := GenerateControlData(len(msg) + 4)
+	ct, _, err := Encrypt(msg, "pw1", "pw2", ctrl)
+	if err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+	shortCtrl := []byte{0x01, 0x02} // much shorter than payload
+	_, err = Decrypt(ct, "pw1", "pw2", shortCtrl)
+	if err == nil {
+		t.Fatal("expected error on short control data, got none (panic risk)")
 	}
 }

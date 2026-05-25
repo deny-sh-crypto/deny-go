@@ -6,7 +6,7 @@
 // Algorithm:
 //
 // ENCRYPT:
-//  1. Derive AES-256 key from password1 + password2 via scrypt
+//  1. Derive AES-256 key from password1 + password2 via Argon2id
 //  2. Prepend 4-byte LE plaintext length to plaintext (inside encrypted zone)
 //  3. XOR (length + plaintext) with control data
 //  4. AES-256-CTR encrypt the result
@@ -38,23 +38,23 @@ import (
 	"fmt"
 	"io"
 
-	"golang.org/x/crypto/scrypt"
+	"golang.org/x/crypto/argon2"
 )
 
 // Constants matching the TypeScript/Python reference implementations.
 const (
 	SaltLength   = 32
 	IVLength     = 16
-	KeyLength    = 32 // AES-256
+	KeyLength    = 32                    // AES-256
 	HeaderLength = SaltLength + IVLength // 48 bytes
 	LengthPrefix = 4                     // 4-byte LE length prefix
 
-	scryptN = 1 << 14 // 16384
-	scryptR = 8
-	scryptP = 1
+	argon2TimeCost    uint32 = 3
+	argon2MemoryCost  uint32 = 65536 // KiB
+	argon2Parallelism uint8  = 1
 )
 
-// DeriveKey derives an AES-256 key from two passwords and a salt using scrypt.
+// DeriveKey derives an AES-256 key from two passwords and a salt using Argon2id.
 // Combines both passwords via SHA-256 hashing to avoid length ambiguities.
 func DeriveKey(password1, password2 string, salt []byte) []byte {
 	h1 := sha256.Sum256([]byte(password1))
@@ -64,12 +64,7 @@ func DeriveKey(password1, password2 string, salt []byte) []byte {
 	copy(combined[:32], h1[:])
 	copy(combined[32:], h2[:])
 
-	key, err := scrypt.Key(combined, salt, scryptN, scryptR, scryptP, KeyLength)
-	if err != nil {
-		// scrypt.Key only errors on invalid parameters, which are constants here.
-		panic(fmt.Sprintf("scrypt.Key failed: %v", err))
-	}
-	return key
+	return argon2.IDKey(combined, salt, argon2TimeCost, argon2MemoryCost, argon2Parallelism, KeyLength)
 }
 
 // GenerateControlData generates cryptographically secure random control data.
@@ -202,6 +197,9 @@ func Decrypt(ciphertext []byte, password1, password2 string, controlData []byte)
 	}
 
 	// XOR with control data to recover payload
+	if len(controlData) < len(decrypted) {
+		return nil, errors.New("control data shorter than decrypted payload")
+	}
 	controlSlice := controlData[:len(decrypted)]
 	payload := xorBytes(decrypted, controlSlice)
 
