@@ -7,7 +7,7 @@ Part of the **Encrypt pillar**: Apache 2.0, zero copyleft, free for any use. Alg
 ## Install
 
 ```bash
-go get github.com/deny-sh-crypto/deny-go
+go get github.com/deny-sh-crypto/deny-go/v2
 ```
 
 Requires Go 1.23+.
@@ -19,7 +19,7 @@ package main
 
 import (
 	"fmt"
-	denysh "github.com/deny-sh-crypto/deny-go"
+	denysh "github.com/deny-sh-crypto/deny-go/v2"
 )
 
 func main() {
