@@ -1,4 +1,4 @@
-module github.com/deny-sh-crypto/deny-go/v2
+module github.com/deny-sh-crypto/deny-go
 
 go 1.23.0
 
