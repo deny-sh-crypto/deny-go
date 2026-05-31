@@ -54,6 +54,10 @@ const (
 	argon2Parallelism uint8  = 1
 )
 
+var bucketBands = []int{64, 256, 1024, 4096, 16384}
+
+const bucketStepAboveTop = 16384
+
 // DeriveKey derives an AES-256 key from two passwords and a salt using Argon2id.
 // Combines both passwords via SHA-256 hashing to avoid length ambiguities.
 func DeriveKey(password1, password2 string, salt []byte) []byte {
@@ -74,6 +78,16 @@ func GenerateControlData(size int) []byte {
 		panic(fmt.Sprintf("crypto/rand failed: %v", err))
 	}
 	return data
+}
+
+// BucketedPayloadLength returns the Honey Mode bucket band for an inner payload length.
+func BucketedPayloadLength(rawPayloadLength int) int {
+	for _, band := range bucketBands {
+		if rawPayloadLength <= band {
+			return band
+		}
+	}
+	return ((rawPayloadLength + bucketStepAboveTop - 1) / bucketStepAboveTop) * bucketStepAboveTop
 }
 
 // xorBytes XORs two byte slices and returns a new slice of length min(len(a), len(b)).
@@ -210,6 +224,49 @@ func Decrypt(ciphertext []byte, password1, password2 string, controlData []byte)
 	}
 
 	return plaintext, nil
+}
+
+type decryptPayloadResult struct {
+	payload    []byte
+	salt       []byte
+	wellFormed bool
+	plaintext  []byte
+}
+
+func decryptToPayload(ciphertext []byte, password1, password2 string, controlData []byte, expectedBand int) (decryptPayloadResult, error) {
+	if len(ciphertext) < HeaderLength {
+		return decryptPayloadResult{}, errors.New("ciphertext too short - missing header")
+	}
+
+	salt := ciphertext[:SaltLength]
+	iv := ciphertext[SaltLength:HeaderLength]
+	encryptedData := ciphertext[HeaderLength:]
+
+	key := DeriveKey(password1, password2, salt)
+	decrypted, err := aesCTR(key, iv, encryptedData)
+	if err != nil {
+		return decryptPayloadResult{}, err
+	}
+
+	if len(controlData) < len(decrypted) {
+		return decryptPayloadResult{}, fmt.Errorf(
+			"control data (%d bytes) must be >= ciphertext payload (%d bytes)",
+			len(controlData), len(decrypted),
+		)
+	}
+
+	payload := xorBytes(decrypted, controlData[:len(decrypted)])
+	plaintext, err := extractPayload(payload)
+	if err != nil {
+		return decryptPayloadResult{}, err
+	}
+
+	return decryptPayloadResult{
+		payload:    payload,
+		salt:       append([]byte(nil), salt...),
+		wellFormed: IsWellFormedFrame(payload, expectedBand),
+		plaintext:  plaintext,
+	}, nil
 }
 
 // GenerateDeniableControl generates new control data that makes existing ciphertext
