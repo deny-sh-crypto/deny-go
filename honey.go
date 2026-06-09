@@ -16,6 +16,8 @@ const (
 	alnum       = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 	alnumUpper  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	base64URL   = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+	base64Std   = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	azureSecret = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-"
 	hexAlphabet = "0123456789abcdef"
 	base58Alpha = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 	niFirst     = "ABCEGHJKLMNOPRSTWXYZ"
@@ -42,6 +44,9 @@ var defaultHoneyLengths = map[string]int{
 	"slack-user-token":     65,
 	"discord-bot-token":    72,
 	"digitalocean-pat":     71,
+	"gcp-api-key":          39,
+	"azure-client-secret":  40,
+	"azure-storage-key":    88,
 	"twilio-auth-token":    34,
 	"sendgrid-key":         69,
 	"huggingface-token":    40,
@@ -85,6 +90,9 @@ var honeyV1Types = map[string]struct{}{
 	"slack-user-token":     {},
 	"discord-bot-token":    {},
 	"digitalocean-pat":     {},
+	"gcp-api-key":          {},
+	"azure-client-secret":  {},
+	"azure-storage-key":    {},
 	"twilio-auth-token":    {},
 	"sendgrid-key":         {},
 	"huggingface-token":    {},
@@ -114,8 +122,19 @@ type EncryptHoneyResult struct {
 	HoneyType  string
 }
 
-// DecryptHoneyResult is the high-level Honey Mode decrypt output.
+// DecryptHoneyResult is the high-level Honey Mode decrypt output (PUBLIC).
+//
+// It deliberately exposes ONLY Value. The real-vs-honey branch is a perfect
+// distinguisher and MUST NOT be surfaced to SDK consumers: a caller who logged
+// or returned it would hand an attacker exactly the oracle Honey Mode exists to
+// deny. The branch is available only via the internal decryptHoneyWithBranch
+// helper used by tests.
 type DecryptHoneyResult struct {
+	Value string
+}
+
+// decryptHoneyInternalResult carries branch telemetry. NOT exported; tests only.
+type decryptHoneyInternalResult struct {
 	Value  string
 	Branch string
 }
@@ -129,7 +148,7 @@ type DecryptHoneyResult struct {
 // lands. Must match the TS HONEY_INELIGIBLE set exactly.
 func IsHoneyEligible(typ string) bool {
 	switch typ {
-	case "generic", "freeform-secret", "jwt-token", "postgres-uri", "mongodb-uri":
+	case "generic", "freeform-secret", "jwt-token", "postgres-uri", "mongodb-uri", "gcp-service-account-key":
 		return false
 	default:
 		return true
@@ -753,6 +772,34 @@ func generateLocalHoneyDecoy(src *SeededByteSource, dummyReal, typ string) (stri
 		return out, nil
 	case "digitalocean-pat":
 		return honeyToken(src, "dop_v1_", realLen, hexAlphabet, 64, fixedInt(64))
+	case "gcp-api-key":
+		return honeyToken(src, "AIza", realLen, base64URL, 35, fixedInt(35))
+	case "azure-client-secret":
+		if realLen < 34 {
+			return "", errors.New("generated decoy exceeds real value length")
+		}
+		csLen := realLen
+		if csLen > 44 {
+			csLen = 44
+		}
+		head, err := honeyChars(src, alnum, 4)
+		if err != nil {
+			return "", err
+		}
+		tail, err := honeyChars(src, azureSecret, csLen-5)
+		if err != nil {
+			return "", err
+		}
+		return head + "~" + tail, nil
+	case "azure-storage-key":
+		if realLen < 88 {
+			return "", errors.New("generated decoy exceeds real value length")
+		}
+		body, err := honeyChars(src, base64Std, 86)
+		if err != nil {
+			return "", err
+		}
+		return body + "==", nil
 	case "twilio-auth-token":
 		return honeyToken(src, "SK", realLen, hexAlphabet, 32, fixedInt(32))
 	case "sendgrid-key":
@@ -945,23 +992,33 @@ func EncryptHoney(secret, password1, password2, honeyType string) (EncryptHoneyR
 
 // DecryptHoney returns the real plaintext for well-formed frames, or a deterministic typed honey fake.
 func DecryptHoney(ciphertext, controlData []byte, password1, password2, honeyType string, band int) (DecryptHoneyResult, error) {
+	res, err := decryptHoneyWithBranch(ciphertext, controlData, password1, password2, honeyType, band)
+	if err != nil {
+		return DecryptHoneyResult{}, err
+	}
+	return DecryptHoneyResult{Value: res.Value}, nil
+}
+
+// decryptHoneyWithBranch is the internal honey decrypt that retains branch
+// telemetry. NOT exported from the package surface; tests/telemetry only.
+func decryptHoneyWithBranch(ciphertext, controlData []byte, password1, password2, honeyType string, band int) (decryptHoneyInternalResult, error) {
 	if !IsHoneyEligible(honeyType) {
-		return DecryptHoneyResult{}, fmt.Errorf("Honey Mode is not supported for unstructured type %q", honeyType)
+		return decryptHoneyInternalResult{}, fmt.Errorf("Honey Mode is not supported for unstructured type %q", honeyType)
 	}
 
 	recovered, err := decryptToPayload(ciphertext, password1, password2, controlData, band)
 	if err != nil {
-		return DecryptHoneyResult{}, err
+		return decryptHoneyInternalResult{}, err
 	}
 	if recovered.wellFormed {
-		return DecryptHoneyResult{Value: string(recovered.plaintext), Branch: "real"}, nil
+		return decryptHoneyInternalResult{Value: string(recovered.plaintext), Branch: "real"}, nil
 	}
 
 	fake, err := GenerateHoneyDecoy(honeyType, recovered.payload, recovered.salt, -1)
 	if err != nil {
-		return DecryptHoneyResult{}, err
+		return decryptHoneyInternalResult{}, err
 	}
-	return DecryptHoneyResult{Value: fake, Branch: "honey"}, nil
+	return decryptHoneyInternalResult{Value: fake, Branch: "honey"}, nil
 }
 
 // IsWellFormedFrame validates the 4-byte LE length frame, optionally against a band.

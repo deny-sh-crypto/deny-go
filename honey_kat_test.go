@@ -281,7 +281,8 @@ func TestHoneyWrappersRoundtripRealBranch(t *testing.T) {
 		t.Fatalf("IsHoneyEligible returned unexpected values")
 	}
 
-	decrypted, err := DecryptHoney(
+	// Public DecryptHoney exposes only Value (branch is an oracle, stripped).
+	pub, err := DecryptHoney(
 		encrypted.Ciphertext,
 		encrypted.RealCtrl,
 		"correct-honey-pw-1",
@@ -291,6 +292,22 @@ func TestHoneyWrappersRoundtripRealBranch(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("DecryptHoney: %v", err)
+	}
+	if pub.Value != secret {
+		t.Fatalf("value got %q want %q", pub.Value, secret)
+	}
+
+	// Internal helper retains the branch for test/telemetry assertions.
+	decrypted, err := decryptHoneyWithBranch(
+		encrypted.Ciphertext,
+		encrypted.RealCtrl,
+		"correct-honey-pw-1",
+		"correct-honey-pw-2",
+		"stripe-live-key",
+		encrypted.Band,
+	)
+	if err != nil {
+		t.Fatalf("decryptHoneyWithBranch: %v", err)
 	}
 	if decrypted.Value != secret {
 		t.Fatalf("value got %q want %q", decrypted.Value, secret)
