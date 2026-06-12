@@ -3,6 +3,7 @@ package denygo
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -591,18 +592,45 @@ func randomCreditCard(src *SeededByteSource, real string) (string, error) {
 	return string(layout), nil
 }
 
-func randomPrivateKeyPem(src *SeededByteSource, real string) (string, error) {
-	begin := "-----BEGIN PRIVATE KEY-----\n"
-	end := "\n-----END PRIVATE KEY-----"
-	budget := len(real) - len(begin) - len(end)
-	if budget < 1 {
-		return "", errors.New("generated decoy exceeds real value length")
+// ed25519PKCS8Prefix is the fixed PKCS#8 DER prefix for an Ed25519 private key
+// (see TS reference ED25519_PKCS8_PREFIX_HEX). Any 32 bytes appended form a
+// structurally valid PKCS#8 Ed25519 key that openssl/Node parse, so the decoy
+// is no longer distinguishable from a real PEM by DER-validity (review #5).
+var ed25519PKCS8Prefix = []byte{
+	0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+}
+
+func randomPrivateKeyPem(src *SeededByteSource, _ string) (string, error) {
+	der := make([]byte, 0, 48)
+	der = append(der, ed25519PKCS8Prefix...)
+	der = append(der, src.Bytes(32)...)
+	body := base64.StdEncoding.EncodeToString(der) // 48 bytes -> 64 chars, no padding
+	return "-----BEGIN PRIVATE KEY-----\n" + body + "\n-----END PRIVATE KEY-----", nil
+}
+
+// nhsCheckDigit returns the NHS mod-11 check digit for a 9-digit body, or -1
+// when the checksum resolves to 10 (an invalid NHS number), matching the TS
+// nhsCheckDigit.
+func nhsCheckDigit(body9 string) int {
+	if len(body9) != 9 {
+		return -1
 	}
-	body, err := honeyChars(src, base64URL, budget)
-	if err != nil {
-		return "", err
+	sum := 0
+	for i := 0; i < 9; i++ {
+		c := body9[i]
+		if c < '0' || c > '9' {
+			return -1
+		}
+		sum += int(c-'0') * (10 - i)
 	}
-	return begin + body + end, nil
+	check := 11 - (sum % 11)
+	if check == 11 {
+		check = 0
+	}
+	if check == 10 {
+		return -1
+	}
+	return check
 }
 
 func uriScheme(real, fallbackScheme string) string {
@@ -865,7 +893,19 @@ func generateLocalHoneyDecoy(src *SeededByteSource, dummyReal, typ string) (stri
 		}
 		return "", errors.New("generated decoy exceeds real value length")
 	case "uk-nhs-number":
-		return honeyDigits(src, len(strings.Join(strings.Fields(dummyReal), "")))
+		// Emit a 9-digit body plus its mod-11 check digit so the honey/decoy NHS
+		// number passes the same checksum a real one does (review #7). Redraw
+		// deterministically from the same stream on the rare mod-11 == 10 case.
+		for i := 0; i < 64; i++ {
+			body, err := honeyDigits(src, 9)
+			if err != nil {
+				return "", err
+			}
+			if check := nhsCheckDigit(body); check >= 0 {
+				return fmt.Sprintf("%s%d", body, check), nil
+			}
+		}
+		return "", errors.New("could not generate valid NHS check digit")
 	case "us-ssn":
 		a, err := sourcedInt(src, 799)
 		if err != nil {
