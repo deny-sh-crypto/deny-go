@@ -23,7 +23,38 @@ const (
 	base58Alpha = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 	niFirst     = "ABCEGHJKLMNOPRSTWXYZ"
 	niSecond    = "ABCEGHJKLMNPRSTWXYZ"
+	mbiAlpha    = "ACDEFGHJKMNPQRTUVWXY"
+	mbiAlnum    = "ACDEFGHJKMNPQRTUVWXY0123456789"
+	vinChars    = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789"
 )
+
+var itinGroups = []string{
+	"50", "51", "52", "53", "54", "55", "56", "57", "58", "59",
+	"60", "61", "62", "63", "64", "65", "70", "71", "72", "73",
+	"74", "75", "76", "77", "78", "79", "80", "81", "82", "83",
+	"84", "85", "86", "87", "88", "90", "91", "92", "94", "95",
+	"96", "97", "98", "99",
+}
+
+var countryCodes = []string{"US", "GB", "DE", "FR", "ES", "IT", "AT", "NL", "SE", "IE", "IN"}
+
+var mrzCountryCodes = []string{"USA", "GBR", "DEU", "FRA", "ESP", "ITA", "AUT", "NLD", "SWE", "IRL", "IND"}
+
+var emailLocals = []string{"alex", "admin", "billing", "ops", "support", "nora", "sam"}
+
+var emailDomains = []string{"acme", "northstar", "ledger", "fieldops", "exampleco"}
+
+var emailTLDs = []string{"com", "net", "io", "co"}
+
+var einPrefixes = []string{
+	"01", "02", "03", "04", "05", "06", "10", "11", "12", "13", "14", "15", "16",
+	"20", "21", "22", "23", "24", "25", "26", "27", "30", "31", "32", "33", "34",
+	"35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47",
+	"48", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "60", "61",
+	"62", "63", "64", "65", "66", "67", "68", "71", "72", "73", "74", "75", "76",
+	"77", "80", "81", "82", "83", "84", "85", "86", "87", "88", "90", "91", "92",
+	"93", "94", "95", "98", "99",
+}
 
 var defaultHoneyLengths = map[string]int{
 	"stripe-test-key":      32,
@@ -66,6 +97,31 @@ var defaultHoneyLengths = map[string]int{
 	"uk-nhs-number":        10,
 	"us-ssn":               11,
 	"uk-ni-number":         9,
+	"us-npi":               10,
+	"us-dea-number":        9,
+	"us-medicare-mbi":      11,
+	"us-ndc":               13,
+	"lei":                  20,
+	"isin":                 12,
+	"cusip":                9,
+	"us-ein":               10,
+	"duns":                 9,
+	"us-routing-number":    9,
+	"us-bank-account":      12,
+	"bic-swift":            11,
+	"us-itin":              11,
+	"passport-mrz":         89,
+	"us-passport":          9,
+	"uscis-number":         9,
+	"aadhaar":              12,
+	"eidas-id":             15,
+	"email-address":        22,
+	"ipv4-address":         15,
+	"ipv6-address":         39,
+	"mac-address":          17,
+	"imei":                 15,
+	"vin":                  17,
+	"uuid":                 36,
 	"phone-e164":           15,
 	"generic":              32,
 	"freeform-secret":      32,
@@ -112,6 +168,31 @@ var honeyV1Types = map[string]struct{}{
 	"uk-nhs-number":        {},
 	"us-ssn":               {},
 	"uk-ni-number":         {},
+	"us-npi":               {},
+	"us-dea-number":        {},
+	"us-medicare-mbi":      {},
+	"us-ndc":               {},
+	"lei":                  {},
+	"isin":                 {},
+	"cusip":                {},
+	"us-ein":               {},
+	"duns":                 {},
+	"us-routing-number":    {},
+	"us-bank-account":      {},
+	"bic-swift":            {},
+	"us-itin":              {},
+	"passport-mrz":         {},
+	"us-passport":          {},
+	"uscis-number":         {},
+	"aadhaar":              {},
+	"eidas-id":             {},
+	"email-address":        {},
+	"ipv4-address":         {},
+	"ipv6-address":         {},
+	"mac-address":          {},
+	"imei":                 {},
+	"vin":                  {},
+	"uuid":                 {},
 	"phone-e164":           {},
 }
 
@@ -315,6 +396,48 @@ func dummyRealForHoneyType(typ string, lenHint int) string {
 		return "mongodb://" + strings.Repeat("x", maxInt(0, lenHint-len("mongodb://")))
 	case "phone-e164":
 		return "+" + strings.Repeat("1", maxInt(0, lenHint-1))
+	case "lei":
+		return strings.Repeat("0", maxInt(20, lenHint))
+	case "isin":
+		return "US" + strings.Repeat("0", maxInt(10, lenHint-2))
+	case "cusip":
+		return strings.Repeat("0", maxInt(9, lenHint))
+	case "us-ein":
+		return "12-0000000"
+	case "duns":
+		return strings.Repeat("0", maxInt(9, lenHint))
+	case "us-routing-number":
+		return strings.Repeat("0", maxInt(9, lenHint))
+	case "us-bank-account":
+		return strings.Repeat("0", maxInt(8, lenHint))
+	case "bic-swift":
+		return "DEMOUS00XXX"
+	case "us-itin":
+		return "900-70-0000"
+	case "passport-mrz":
+		return padEnd("P<UTOERIKSSON<<ANNA<MARIA", 44, '<') + "\nL898902C36UTO7408122F1204159ZE184226B<<<<<10"
+	case "us-passport":
+		return "A12345678"
+	case "uscis-number":
+		return "123456789"
+	case "aadhaar":
+		return "234567890124"
+	case "eidas-id":
+		return "ES/AT/02635542Y"
+	case "email-address":
+		return "alex@exampleco.com"
+	case "ipv4-address":
+		return "192.168.100.200"
+	case "ipv6-address":
+		return "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+	case "mac-address":
+		return "02:00:5e:10:00:00"
+	case "imei":
+		return "490154203237518"
+	case "vin":
+		return "1HGCM82633A004352"
+	case "uuid":
+		return "550e8400-e29b-41d4-a716-446655440000"
 	default:
 		return strings.Repeat("x", lenHint)
 	}
@@ -633,6 +756,185 @@ func nhsCheckDigit(body9 string) int {
 	return check
 }
 
+func deaCheckDigit(body6 string) int {
+	d := make([]int, len(body6))
+	for i := range body6 {
+		d[i] = int(body6[i] - '0')
+	}
+	return (d[0] + d[2] + d[4] + 2*(d[1]+d[3]+d[5])) % 10
+}
+
+func alphaNumToNumeric(value string) string {
+	var out strings.Builder
+	for _, ch := range strings.ToUpper(value) {
+		switch {
+		case ch >= '0' && ch <= '9':
+			out.WriteRune(ch)
+		case ch >= 'A' && ch <= 'Z':
+			out.WriteString(fmt.Sprintf("%d", ch-55))
+		}
+	}
+	return out.String()
+}
+
+func mod97Numeric(numeric string) int {
+	remainder := 0
+	for i := 0; i < len(numeric); i++ {
+		remainder = (remainder*10 + int(numeric[i]-'0')) % 97
+	}
+	return remainder
+}
+
+func leiCheckDigits(body18 string) string {
+	check := 98 - mod97Numeric(alphaNumToNumeric(strings.ToUpper(body18)+"00"))
+	return fmt.Sprintf("%02d", check)
+}
+
+func isinCheckDigit(body11 string) int {
+	return luhnCheckDigit(alphaNumToNumeric(body11))
+}
+
+func cusipCharValue(ch byte) int {
+	switch {
+	case ch >= '0' && ch <= '9':
+		return int(ch - '0')
+	case ch >= 'A' && ch <= 'Z':
+		return int(ch - 55)
+	case ch == '*':
+		return 36
+	case ch == '@':
+		return 37
+	case ch == '#':
+		return 38
+	default:
+		return 0
+	}
+}
+
+func cusipCheckDigit(body8 string) int {
+	body := strings.ToUpper(body8)
+	sum := 0
+	for i := 0; i < len(body); i++ {
+		weighted := cusipCharValue(body[i])
+		if i%2 == 1 {
+			weighted *= 2
+		}
+		sum += weighted/10 + weighted%10
+	}
+	return (10 - (sum % 10)) % 10
+}
+
+func abaRoutingCheckDigit(body8 string) int {
+	weights := []int{3, 7, 1, 3, 7, 1, 3, 7}
+	sum := 0
+	for i := 0; i < len(body8); i++ {
+		sum += int(body8[i]-'0') * weights[i]
+	}
+	return (10 - (sum % 10)) % 10
+}
+
+func mrzCharValue(ch byte) int {
+	switch {
+	case ch >= '0' && ch <= '9':
+		return int(ch - '0')
+	case ch >= 'A' && ch <= 'Z':
+		return int(ch - 55)
+	default:
+		return 0
+	}
+}
+
+func mrzCheckDigit(field string) int {
+	weights := []int{7, 3, 1}
+	sum := 0
+	for i := 0; i < len(field); i++ {
+		sum += mrzCharValue(field[i]) * weights[i%3]
+	}
+	return sum % 10
+}
+
+var verhoeffD = [10][10]int{
+	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+	{1, 2, 3, 4, 0, 6, 7, 8, 9, 5},
+	{2, 3, 4, 0, 1, 7, 8, 9, 5, 6},
+	{3, 4, 0, 1, 2, 8, 9, 5, 6, 7},
+	{4, 0, 1, 2, 3, 9, 5, 6, 7, 8},
+	{5, 9, 8, 7, 6, 0, 4, 3, 2, 1},
+	{6, 5, 9, 8, 7, 1, 0, 4, 3, 2},
+	{7, 6, 5, 9, 8, 2, 1, 0, 4, 3},
+	{8, 7, 6, 5, 9, 3, 2, 1, 0, 4},
+	{9, 8, 7, 6, 5, 4, 3, 2, 1, 0},
+}
+
+var verhoeffP = [8][10]int{
+	{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+	{1, 5, 7, 6, 2, 8, 3, 0, 9, 4},
+	{5, 8, 0, 3, 7, 9, 6, 1, 4, 2},
+	{8, 9, 1, 6, 0, 4, 3, 5, 2, 7},
+	{9, 4, 5, 3, 1, 2, 6, 8, 7, 0},
+	{4, 2, 8, 6, 5, 7, 3, 9, 0, 1},
+	{2, 7, 9, 3, 8, 0, 6, 4, 1, 5},
+	{7, 0, 4, 6, 9, 1, 3, 2, 5, 8},
+}
+
+var verhoeffInv = [10]int{0, 4, 3, 2, 1, 5, 6, 7, 8, 9}
+
+func verhoeffCheckDigit(body string) int {
+	c := 0
+	for i := 0; i < len(body); i++ {
+		digit := int(body[len(body)-1-i] - '0')
+		c = verhoeffD[c][verhoeffP[(i+1)%8][digit]]
+	}
+	return verhoeffInv[c]
+}
+
+func vinTranslit(ch byte) int {
+	switch ch {
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return int(ch - '0')
+	case 'A', 'J':
+		return 1
+	case 'B', 'K', 'S':
+		return 2
+	case 'C', 'L', 'T':
+		return 3
+	case 'D', 'M', 'U':
+		return 4
+	case 'E', 'N', 'V':
+		return 5
+	case 'F', 'W':
+		return 6
+	case 'G', 'P', 'X':
+		return 7
+	case 'H', 'Y':
+		return 8
+	case 'R', 'Z':
+		return 9
+	default:
+		return 0
+	}
+}
+
+func vinCheckDigit(vin17 string) byte {
+	weights := []int{8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2}
+	sum := 0
+	for i := 0; i < len(vin17); i++ {
+		sum += vinTranslit(vin17[i]) * weights[i]
+	}
+	rem := sum % 11
+	if rem == 10 {
+		return 'X'
+	}
+	return byte('0' + rem)
+}
+
+func padEnd(value string, length int, fill byte) string {
+	if len(value) >= length {
+		return value[:length]
+	}
+	return value + strings.Repeat(string(fill), length-len(value))
+}
+
 func uriScheme(real, fallbackScheme string) string {
 	colon := strings.Index(real, "://")
 	if colon <= 0 {
@@ -680,6 +982,171 @@ func randomURI(src *SeededByteSource, real, fallbackScheme string) (string, erro
 		return "", errors.New("generated decoy exceeds real value length")
 	}
 	return out, nil
+}
+
+func randomPassportMRZ(src *SeededByteSource, realLen int) (string, error) {
+	if _, err := boundedLen(realLen, 0, 89, fixedInt(89)); err != nil {
+		return "", err
+	}
+	issuerIdx, err := sourcedInt(src, len(mrzCountryCodes))
+	if err != nil {
+		return "", err
+	}
+	issuer := mrzCountryCodes[issuerIdx]
+	first, err := honeyChars(src, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 7)
+	if err != nil {
+		return "", err
+	}
+	last, err := honeyChars(src, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 6)
+	if err != nil {
+		return "", err
+	}
+	line1 := padEnd("P<"+issuer+first+"<<"+last, 44, '<')
+	passportNumber, err := honeyChars(src, alnumUpper, 9)
+	if err != nil {
+		return "", err
+	}
+	year, err := sourcedInt(src, 50)
+	if err != nil {
+		return "", err
+	}
+	month, err := sourcedInt(src, 12)
+	if err != nil {
+		return "", err
+	}
+	day, err := sourcedInt(src, 28)
+	if err != nil {
+		return "", err
+	}
+	birth := fmt.Sprintf("%d%02d%02d", 40+year, 1+month, 1+day)
+	sexIdx, err := sourcedInt(src, 3)
+	if err != nil {
+		return "", err
+	}
+	sex := "MF<"[sexIdx]
+	expYear, err := sourcedInt(src, 20)
+	if err != nil {
+		return "", err
+	}
+	expMonth, err := sourcedInt(src, 12)
+	if err != nil {
+		return "", err
+	}
+	expDay, err := sourcedInt(src, 28)
+	if err != nil {
+		return "", err
+	}
+	expiry := fmt.Sprintf("%d%02d%02d", 26+expYear, 1+expMonth, 1+expDay)
+	personal, err := honeyChars(src, alnumUpper+"<", 14)
+	if err != nil {
+		return "", err
+	}
+	docCheck := mrzCheckDigit(passportNumber)
+	birthCheck := mrzCheckDigit(birth)
+	expiryCheck := mrzCheckDigit(expiry)
+	personalCheck := mrzCheckDigit(personal)
+	composite := fmt.Sprintf("%s%d%s%d%s%d%s%d", passportNumber, docCheck, birth, birthCheck, expiry, expiryCheck, personal, personalCheck)
+	line2 := fmt.Sprintf("%s%d%s%s%d%c%s%d%s%d%d", passportNumber, docCheck, issuer, birth, birthCheck, sex, expiry, expiryCheck, personal, personalCheck, mrzCheckDigit(composite))
+	return line1 + "\n" + line2, nil
+}
+
+func randomEmailAddress(src *SeededByteSource, realLen int) (string, error) {
+	locals := make([]string, 0, len(emailLocals))
+	for _, local := range emailLocals {
+		if len(local)+1+2+1+2 <= realLen {
+			locals = append(locals, local)
+		}
+	}
+	local := "a"
+	if len(locals) > 0 {
+		idx, err := sourcedInt(src, len(locals))
+		if err != nil {
+			return "", err
+		}
+		local = locals[idx]
+	}
+	domains := make([]string, 0, len(emailDomains))
+	for _, domain := range emailDomains {
+		if len(local)+1+len(domain)+1+2 <= realLen {
+			domains = append(domains, domain)
+		}
+	}
+	domain := "b"
+	if len(domains) > 0 {
+		idx, err := sourcedInt(src, len(domains))
+		if err != nil {
+			return "", err
+		}
+		domain = domains[idx]
+	}
+	tlds := make([]string, 0, len(emailTLDs))
+	for _, tld := range emailTLDs {
+		if len(local)+1+len(domain)+1+len(tld) <= realLen {
+			tlds = append(tlds, tld)
+		}
+	}
+	if len(tlds) == 0 {
+		return "", errors.New("generated decoy exceeds real value length")
+	}
+	idx, err := sourcedInt(src, len(tlds))
+	if err != nil {
+		return "", err
+	}
+	return local + "@" + domain + "." + tlds[idx], nil
+}
+
+func randomIPv6Address(src *SeededByteSource, realLen int) (string, error) {
+	if _, err := boundedLen(realLen, 0, 39, fixedInt(39)); err != nil {
+		return "", err
+	}
+	parts := make([]string, 8)
+	for i := range parts {
+		part, err := honeyChars(src, hexAlphabet, 4)
+		if err != nil {
+			return "", err
+		}
+		parts[i] = part
+	}
+	return strings.Join(parts, ":"), nil
+}
+
+func randomMacAddress(src *SeededByteSource, realLen int) (string, error) {
+	if _, err := boundedLen(realLen, 0, 17, fixedInt(17)); err != nil {
+		return "", err
+	}
+	octets := src.Bytes(6)
+	octets[0] = (octets[0] | 0x02) & 0xfe
+	return fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", octets[0], octets[1], octets[2], octets[3], octets[4], octets[5]), nil
+}
+
+func randomVIN(src *SeededByteSource, realLen int) (string, error) {
+	if _, err := boundedLen(realLen, 0, 17, fixedInt(17)); err != nil {
+		return "", err
+	}
+	vin := make([]byte, 17)
+	for i := range vin {
+		idx, err := sourcedInt(src, len(vinChars))
+		if err != nil {
+			return "", err
+		}
+		vin[i] = vinChars[idx]
+	}
+	vin[8] = '0'
+	vin[8] = vinCheckDigit(string(vin))
+	return string(vin), nil
+}
+
+func randomUUIDV4(src *SeededByteSource, realLen int) (string, error) {
+	if _, err := boundedLen(realLen, 0, 36, fixedInt(36)); err != nil {
+		return "", err
+	}
+	raw := src.Bytes(16)
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	hexValue := fmt.Sprintf("%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+		raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
+		raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15])
+	return hexValue[:8] + "-" + hexValue[8:12] + "-" + hexValue[12:16] + "-" + hexValue[16:20] + "-" + hexValue[20:], nil
 }
 
 func generateLocalHoneyDecoy(src *SeededByteSource, dummyReal, typ string) (string, error) {
@@ -938,6 +1405,263 @@ func generateLocalHoneyDecoy(src *SeededByteSource, dummyReal, typ string) (stri
 			return "", err
 		}
 		return string(niFirst[a]) + string(niSecond[b]) + nums + string("ABCD"[c]), nil
+	case "us-npi":
+		body, err := honeyDigits(src, 9)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s%d", body, luhnCheckDigit("80840"+body)), nil
+	case "us-dea-number":
+		prefix, err := honeyChars(src, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 2)
+		if err != nil {
+			return "", err
+		}
+		body, err := honeyDigits(src, 6)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s%s%d", prefix, body, deaCheckDigit(body)), nil
+	case "us-medicare-mbi":
+		first, err := sourcedInt(src, 9)
+		if err != nil {
+			return "", err
+		}
+		a, err := honeyChars(src, mbiAlpha, 1)
+		if err != nil {
+			return "", err
+		}
+		b, err := honeyChars(src, mbiAlnum, 1)
+		if err != nil {
+			return "", err
+		}
+		c, err := honeyDigits(src, 1)
+		if err != nil {
+			return "", err
+		}
+		d, err := honeyChars(src, mbiAlpha, 1)
+		if err != nil {
+			return "", err
+		}
+		e, err := honeyChars(src, mbiAlnum, 1)
+		if err != nil {
+			return "", err
+		}
+		f, err := honeyDigits(src, 1)
+		if err != nil {
+			return "", err
+		}
+		g, err := honeyChars(src, mbiAlpha, 2)
+		if err != nil {
+			return "", err
+		}
+		h, err := honeyDigits(src, 2)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%d%s%s%s%s%s%s%s%s", 1+first, a, b, c, d, e, f, g, h), nil
+	case "us-ndc":
+		a, err := honeyDigits(src, 5)
+		if err != nil {
+			return "", err
+		}
+		b, err := honeyDigits(src, 4)
+		if err != nil {
+			return "", err
+		}
+		c, err := honeyDigits(src, 2)
+		if err != nil {
+			return "", err
+		}
+		return a + "-" + b + "-" + c, nil
+	case "lei":
+		if _, err := boundedLen(realLen, 0, 20, fixedInt(20)); err != nil {
+			return "", err
+		}
+		body, err := honeyChars(src, alnumUpper, 18)
+		if err != nil {
+			return "", err
+		}
+		return body + leiCheckDigits(body), nil
+	case "isin":
+		if _, err := boundedLen(realLen, 0, 12, fixedInt(12)); err != nil {
+			return "", err
+		}
+		country, err := honeyChars(src, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 2)
+		if err != nil {
+			return "", err
+		}
+		rest, err := honeyChars(src, alnumUpper, 9)
+		if err != nil {
+			return "", err
+		}
+		body := country + rest
+		return fmt.Sprintf("%s%d", body, isinCheckDigit(body)), nil
+	case "cusip":
+		if _, err := boundedLen(realLen, 0, 9, fixedInt(9)); err != nil {
+			return "", err
+		}
+		body, err := honeyChars(src, alnumUpper+"*@#", 8)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s%d", body, cusipCheckDigit(body)), nil
+	case "us-ein":
+		if _, err := boundedLen(realLen, 0, 10, fixedInt(10)); err != nil {
+			return "", err
+		}
+		idx, err := sourcedInt(src, len(einPrefixes))
+		if err != nil {
+			return "", err
+		}
+		body, err := honeyDigits(src, 7)
+		if err != nil {
+			return "", err
+		}
+		return einPrefixes[idx] + "-" + body, nil
+	case "duns":
+		if _, err := boundedLen(realLen, 0, 9, fixedInt(9)); err != nil {
+			return "", err
+		}
+		return honeyDigits(src, 9)
+	case "us-routing-number":
+		if _, err := boundedLen(realLen, 0, 9, fixedInt(9)); err != nil {
+			return "", err
+		}
+		body, err := honeyDigits(src, 8)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s%d", body, abaRoutingCheckDigit(body)), nil
+	case "us-bank-account":
+		n := maxInt(8, minInt(12, realLen))
+		if _, err := boundedLen(realLen, 0, 8, fixedInt(n)); err != nil {
+			return "", err
+		}
+		return honeyDigits(src, n)
+	case "bic-swift":
+		if _, err := boundedLen(realLen, 0, 11, fixedInt(11)); err != nil {
+			return "", err
+		}
+		a, err := honeyChars(src, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 4)
+		if err != nil {
+			return "", err
+		}
+		b, err := honeyChars(src, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 2)
+		if err != nil {
+			return "", err
+		}
+		c, err := honeyChars(src, alnumUpper, 2)
+		if err != nil {
+			return "", err
+		}
+		d, err := honeyChars(src, alnumUpper, 3)
+		if err != nil {
+			return "", err
+		}
+		return a + b + c + d, nil
+	case "us-itin":
+		if _, err := boundedLen(realLen, 0, 11, fixedInt(11)); err != nil {
+			return "", err
+		}
+		prefix, err := honeyDigits(src, 2)
+		if err != nil {
+			return "", err
+		}
+		idx, err := sourcedInt(src, len(itinGroups))
+		if err != nil {
+			return "", err
+		}
+		tail, err := honeyDigits(src, 4)
+		if err != nil {
+			return "", err
+		}
+		return "9" + prefix + "-" + itinGroups[idx] + "-" + tail, nil
+	case "passport-mrz":
+		return randomPassportMRZ(src, realLen)
+	case "us-passport":
+		if _, err := boundedLen(realLen, 0, 9, fixedInt(9)); err != nil {
+			return "", err
+		}
+		return honeyChars(src, alnumUpper, 9)
+	case "uscis-number":
+		if _, err := boundedLen(realLen, 0, 9, fixedInt(9)); err != nil {
+			return "", err
+		}
+		return honeyDigits(src, 9)
+	case "aadhaar":
+		if _, err := boundedLen(realLen, 0, 12, fixedInt(12)); err != nil {
+			return "", err
+		}
+		first, err := sourcedInt(src, 8)
+		if err != nil {
+			return "", err
+		}
+		rest, err := honeyDigits(src, 10)
+		if err != nil {
+			return "", err
+		}
+		body := fmt.Sprintf("%d%s", 2+first, rest)
+		return fmt.Sprintf("%s%d", body, verhoeffCheckDigit(body)), nil
+	case "eidas-id":
+		bodyLen := maxInt(1, minInt(20, realLen-6))
+		if _, err := boundedLen(realLen, 6, 1, fixedInt(bodyLen)); err != nil {
+			return "", err
+		}
+		c1, err := sourcedInt(src, len(countryCodes))
+		if err != nil {
+			return "", err
+		}
+		c2, err := sourcedInt(src, len(countryCodes))
+		if err != nil {
+			return "", err
+		}
+		body, err := honeyChars(src, alnumUpper, bodyLen)
+		if err != nil {
+			return "", err
+		}
+		return countryCodes[c1] + "/" + countryCodes[c2] + "/" + body, nil
+	case "email-address":
+		return randomEmailAddress(src, realLen)
+	case "ipv4-address":
+		a, err := sourcedInt(src, 256)
+		if err != nil {
+			return "", err
+		}
+		b, err := sourcedInt(src, 256)
+		if err != nil {
+			return "", err
+		}
+		c, err := sourcedInt(src, 256)
+		if err != nil {
+			return "", err
+		}
+		d, err := sourcedInt(src, 256)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%d.%d.%d.%d", a, b, c, d), nil
+	case "ipv6-address":
+		return randomIPv6Address(src, realLen)
+	case "mac-address":
+		return randomMacAddress(src, realLen)
+	case "imei":
+		if _, err := boundedLen(realLen, 0, 15, fixedInt(15)); err != nil {
+			return "", err
+		}
+		first, err := sourcedInt(src, 6)
+		if err != nil {
+			return "", err
+		}
+		rest, err := honeyDigits(src, 13)
+		if err != nil {
+			return "", err
+		}
+		body := fmt.Sprintf("%d%s", 3+first, rest)
+		return fmt.Sprintf("%s%d", body, luhnCheckDigit(body)), nil
+	case "vin":
+		return randomVIN(src, realLen)
+	case "uuid":
+		return randomUUIDV4(src, realLen)
 	case "phone-e164":
 		noPlus := strings.TrimPrefix(dummyReal, "+")
 		n := maxInt(8, minInt(15, len(noPlus)))
