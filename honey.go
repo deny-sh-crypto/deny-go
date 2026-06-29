@@ -1778,7 +1778,22 @@ func decryptHoneyWithBranch(ciphertext, controlData []byte, password1, password2
 		return decryptHoneyInternalResult{Value: string(recovered.plaintext), Branch: "real"}, nil
 	}
 
-	fake, err := GenerateHoneyDecoy(honeyType, recovered.payload, recovered.salt, -1)
+	// Length-oracle fix: band-match the honey fake to the real ciphertext band via
+	// realLengthHint, derived identically to the TS reference. Canonical length that
+	// already lands in this band keeps KAT output byte-identical (-1 == no hint path
+	// equivalent); otherwise size to the band.
+	realLengthHint := -1
+	if defaultHint, err := defaultLengthForHoneyType(honeyType); err == nil {
+		if BucketedPayloadLength(defaultHint+LengthPrefix) == len(recovered.payload) {
+			realLengthHint = defaultHint
+		} else {
+			realLengthHint = len(recovered.payload) - LengthPrefix
+			if realLengthHint < 0 {
+				realLengthHint = 0
+			}
+		}
+	}
+	fake, err := GenerateHoneyDecoy(honeyType, recovered.payload, recovered.salt, realLengthHint)
 	if err != nil {
 		return decryptHoneyInternalResult{}, err
 	}
